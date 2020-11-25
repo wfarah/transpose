@@ -145,25 +145,30 @@ int *transpose_pthread(void* threadid, db_transpose_t * ctx, const void* in, voi
 }
 
 
+//Constansts
+#define NPOL  2
+#define NTIME 16
+typedef struct {uint8_t num[NPOL*NTIME];} CP_DTYPE;
+//typedef uint64_t CP_DTYPE;
+
 int transpose(db_transpose_t * ctx, const void* in, void* out)
 {
   // To be used in pointer arithmetic
-  const char* inbuf;
-  char* outbuf;
+  const CP_DTYPE* inbuf;
+  CP_DTYPE* outbuf;
 
-  const char* baseinbuf = in;
-  char* baseoutbuf      = out;
+  const CP_DTYPE* baseinbuf = in;
+  CP_DTYPE* baseoutbuf      = out;
 
   // number of packets that span the entire data block, in time
-  //size_t itime_packets = ctx->piperblk / ctx->ntime;
-  //size_t nchan = ctx->obsnchan;
-  size_t itime_packets = 8192*8 / 16;
-  size_t nchan = 2048;
-  
+  size_t itime_packets = ctx->piperblk / ctx->ntime;
+  size_t nchan = ctx->obsnchan;
 
   // bytes to stride within a packet in input buffer
   // and also amount to copy at a time
-  size_t istride = (ctx->npol * ctx->ndim * ctx->nbits * ctx->ntime)/8;
+  //size_t istride = (ctx->npol * ctx->ndim * ctx->nbits * ctx->ntime)/8/sizeof *inbuf;
+  size_t istride = NPOL*NTIME/sizeof *inbuf;
+  //size_t istride_m = istride*sizeof *inbuf;
 
 #ifdef USE_MULTI_THREAD
   size_t tstride = ctx->obsnchan * istride;
@@ -185,14 +190,12 @@ int transpose(db_transpose_t * ctx, const void* in, void* out)
     outbuf = baseoutbuf + iptime*istride;
     for (size_t ichan=0; ichan < nchan; ichan+=1)
     {
-      memcpy(outbuf, inbuf, istride);
-      inbuf += istride;
-      outbuf += ostride;
-      /*
+      //memcpy(outbuf, inbuf, istride_m);
+      //inbuf += istride;
+      //outbuf += ostride;
       for (size_t t=0; t<istride; t++)
         *outbuf++ = *inbuf++;
       outbuf += nstride;
-      */
     }
   }
   return 0;
@@ -254,15 +257,19 @@ int test_buf(char* outbuf, size_t nsamps)
 
 int main(int argc, char* argv[])
 {
-  size_t NTIME    = 16; //ntime samples per packet. This is the only constant in the entire pipeline
+  //size_t NTIME    = 16; //ntime samples per packet. This is the only constant in the entire pipeline
   size_t OBSNCHAN = 2048; //total number of channels (all the antennas)
   size_t NBITS    = 4; //Number of bits
   size_t NDIM     = 2; //i.e. complex
-  size_t NPOL     = 2; //Number of polarisations
+  //size_t NPOL     = 2; //Number of polarisations
   size_t PIPERBLK = 8192*8; // Number of time samples in a block
 
 #ifdef USE_MULTI_THREAD
-  omp_set_num_threads(NTHREADS);
+  int nthreads = (int) atoi(argv[1]);
+  omp_set_num_threads(nthreads);
+  fprintf(stderr, "Using multithreading, nthreads: %i\n", nthreads);
+#else
+  fprintf(stderr, "Not using multithreading\n");
 #endif
 
   // create context
@@ -273,7 +280,10 @@ int main(int argc, char* argv[])
   ctx.ndim = NDIM;
   ctx.npol = NPOL;
   ctx.piperblk = PIPERBLK;
-  
+
+  CP_DTYPE t;
+  fprintf(stderr, "CP_DTYPE size=%li\n", sizeof t);
+
 
   //Create input and output buffers, same size
   size_t buffsize = (NPOL * NDIM * NBITS * PIPERBLK * OBSNCHAN)/8; // Bytes
